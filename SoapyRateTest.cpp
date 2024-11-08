@@ -4,6 +4,7 @@
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Formats.hpp>
 #include <SoapySDR/Errors.hpp>
+#include <SoapySDR/Logger.hpp>
 #include <string>
 #include <cstdlib>
 #include <iostream>
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <cstdio>
 #include <thread>
+#include <numbers>
 
 static sig_atomic_t loopDone = false;
 static void sigIntHandler(const int)
@@ -24,11 +26,42 @@ void runRateTestStreamLoop(
     SoapySDR::Stream *stream,
     const int direction,
     const size_t numChans,
-    const size_t elemSize)
+    const size_t elemSize,
+    const double frequency,
+    const double sampleRate)
 {
     //allocate buffers for the stream read/write
     const size_t numElems = device->getStreamMTU(stream);
     std::vector<std::vector<char>> buffMem(numChans, std::vector<char>(elemSize*numElems));
+
+    //generate some samples
+    int nbits = 16;
+    double amplitude = 1.0;
+    const double omega = 2 * std::numbers::pi * frequency / sampleRate;
+    std::cout << "omega " << omega << std::endl;
+    double phi = 0.0;
+    for(size_t i=0; i<numElems; i++) {
+        double re = std::cos(phi) * amplitude * std::exp2(elemSize*4 - 1);
+        double im = std::sin(phi) * amplitude * std::exp2(elemSize*4 - 1);
+
+        std::cout << "double re " << re << " double im " << im << std::endl;
+
+        //std::cout << "re " << re << " im " << im << std::endl;
+
+        float *dst_cf32 = reinterpret_cast<float*>(&buffMem[0][i]);
+        dst_cf32[0] = re;
+        dst_cf32[1] = im;
+
+        std::cout << "float re " << dst_cf32[0] << " float im " << dst_cf32[1] << std::endl;
+
+
+        dst_cf32 = reinterpret_cast<float*>(&buffMem[1][i]);
+        dst_cf32[0] = re;
+        dst_cf32[1] = im;
+
+        phi += omega;
+    }
+
     std::vector<void *> buffs(numChans);
     for (size_t i = 0; i < numChans; i++) buffs[i] = buffMem[i].data();
 
@@ -114,13 +147,18 @@ void runRateTestStreamLoop(
         }
 
     }
+
+    std::cout << "deactivate " << direction << std::endl;
     device->deactivateStream(stream);
 }
 
 int SoapySDRRateTest(
     const std::string &argStr,
     const double frequency,
+    const double bandwidth,
     const double sampleRate,
+    const double rxGain,
+    const double txGain,
     const std::string &formatStr,
     const std::string &channelStr)
 {
@@ -143,9 +181,15 @@ int SoapySDRRateTest(
         {
             device->setFrequency(SOAPY_SDR_RX, chan, frequency);
             device->setFrequency(SOAPY_SDR_TX, chan, frequency);
+
+            device->setBandwidth(SOAPY_SDR_RX, chan, bandwidth);
+            device->setBandwidth(SOAPY_SDR_TX, chan, bandwidth);
             
             device->setSampleRate(SOAPY_SDR_RX, chan, sampleRate);
             device->setSampleRate(SOAPY_SDR_TX, chan, sampleRate);
+
+            device->setGain(SOAPY_SDR_RX, chan, rxGain);
+            device->setGain(SOAPY_SDR_TX, chan, txGain);
         }
 
         //create the stream, use the native format
@@ -163,24 +207,26 @@ int SoapySDRRateTest(
         std::cout << "Num channels: " << channels.size() << std::endl;
         std::cout << "RX Element size: " << rxElemSize << " bytes" << "TX Element size: " << txElemSize << " bytes" << std::endl;
         std::cout << "Begin rate test at " << (sampleRate/1e6) << " Msps" << std::endl;
-        //runRateTestStreamLoop(device, stream, direction, channels.size(), elemSize);
 
         signal(SIGINT, sigIntHandler);
 
+        SoapySDR::setLogLevel(SoapySDR::LogLevel::SOAPY_SDR_INFO);
+
         std::cout << "Create rxThread " << std::endl;
-        auto rxThread = std::thread([device, rxStream, channels, rxElemSize]() {
-            runRateTestStreamLoop(device, rxStream, SOAPY_SDR_RX, channels.size(), rxElemSize);
+        auto rxThread = std::thread([device, rxStream, channels, rxElemSize, frequency, sampleRate]() {
+            runRateTestStreamLoop(device, rxStream, SOAPY_SDR_RX, channels.size(), rxElemSize, frequency, sampleRate);
         });
 
         sleep(2);
         
         std::cout << "Create txThread " << std::endl;
-        auto txThread = std::thread([device, txStream, channels, txElemSize]() {
-            runRateTestStreamLoop(device, txStream, SOAPY_SDR_TX, channels.size(), txElemSize);
+        auto txThread = std::thread([device, txStream, channels, txElemSize, frequency, sampleRate]() {
+            runRateTestStreamLoop(device, txStream, SOAPY_SDR_TX, channels.size(), txElemSize, frequency, sampleRate);
         });
 
         std::cout << "Join rxThread " << std::endl;
         rxThread.join();
+        txThread.join();
 
         //cleanup stream and device
         device->closeStream(rxStream);

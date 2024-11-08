@@ -29,7 +29,10 @@ std::string sensorReadings(SoapySDR::Device *);
 int SoapySDRRateTest(
     const std::string &argStr,
     const double frequency,
+    const double bandwidth,
     const double sampleRate,
+    const double rxGain,
+    const double txGain,
     const std::string &formatStr,
     const std::string &channelStr);
 
@@ -67,10 +70,11 @@ static int printHelp(void)
 
     std::cout << "  Rate testing options:" << std::endl;
     std::cout << "    --args[=\"driver=foo\"] \t\t Arguments for testing" << std::endl;
+    std::cout << "    --frequency[=frequency] \t\t Frequency in Hz" << std::endl;
+    std::cout << "    --bandwidth[=bandwidth] \t\t Bandwidth in Hz" << std::endl;
     std::cout << "    --rate[=stream rate Sps] \t\t Rate in samples per second" << std::endl;
     std::cout << "    --format[=CS16|CS8|...] \t\t Sample format, default native" << std::endl;
     std::cout << "    --channels[=\"0, 1, 2\"] \t\t List of channels, default 0" << std::endl;
-    std::cout << "    --direction[=RX or TX] \t\t Specify the channel direction" << std::endl;
     std::cout << std::endl;
     return EXIT_SUCCESS;
 }
@@ -287,9 +291,11 @@ int main(int argc, char *argv[])
     std::string argStr;
     std::string formatStr;
     std::string chanStr;
-    std::string dirStr;
     double frequency(0.0);
+    double bandwidth(0.0);
     double sampleRate(0.0);
+    double txGain(-30.0);
+    double rxGain(40.0);
     std::string driverName;
     bool findDevicesFlag(false);
     bool sparsePrintFlag(false);
@@ -314,10 +320,12 @@ int main(int argc, char *argv[])
 
         {"args", optional_argument, nullptr, 'a'},
         {"frequency", optional_argument, nullptr, 'q'},
+        {"bandwidth", optional_argument, nullptr, 'b'},
         {"rate", optional_argument, nullptr, 'r'},
         {"format", optional_argument, nullptr, 't'},
         {"channels", optional_argument, nullptr, 'n'},
-        {"direction", optional_argument, nullptr, 'd'},
+        {"txGain", optional_argument, nullptr, 'y'},
+        {"rxGain", optional_argument, nullptr, 'z'},
         {nullptr, no_argument, nullptr, '\0'}
     };
     int long_index = 0;
@@ -363,17 +371,23 @@ int main(int argc, char *argv[])
         case 'q':
             if (optarg != nullptr) frequency = std::stod(optarg);
             break;
+        case 'b':
+            if (optarg != nullptr) bandwidth = std::stod(optarg);
+            break;
         case 'r':
             if (optarg != nullptr) sampleRate = std::stod(optarg);
+            break;
+        case 'y':
+            if (optarg != nullptr) txGain = std::stod(optarg);
+            break;
+        case 'z':
+            if (optarg != nullptr) rxGain = std::stod(optarg);
             break;
         case 't':
             if (optarg != nullptr) formatStr = optarg;
             break;
         case 'n':
             if (optarg != nullptr) chanStr = optarg;
-            break;
-        case 'd':
-            if (optarg != nullptr) dirStr = optarg;
             break;
         }
     }
@@ -400,7 +414,7 @@ int main(int argc, char *argv[])
     //invoke utilities that rely on multiple arguments
     if (sampleRate != 0.0)
     {
-        return SoapySDRRateTest(argStr, frequency, sampleRate, formatStr, chanStr);
+        return SoapySDRRateTest(argStr, frequency, bandwidth, sampleRate, rxGain, txGain, formatStr, chanStr);
     }
 
     //unknown or unspecified options, do help...
